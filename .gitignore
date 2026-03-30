@@ -1,0 +1,20 @@
+# Environment variables
+.env
+
+# Model file
+student_pred_pipe copy
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.env/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
+Thumbs.db
