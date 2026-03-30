@@ -25,7 +25,7 @@ app.add_middleware(
 
 # Initialize Predictor
 # Note: The model path is relative to the root where this script will be executed
-MODEL_PATH = "student_pred_pipe copy"
+MODEL_PATH = "student_risk_model"
 predictor = StudentRiskPredictor(model_path=MODEL_PATH)
 
 # Pydantic models for request/response
