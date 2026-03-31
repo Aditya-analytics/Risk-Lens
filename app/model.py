@@ -206,16 +206,22 @@ class StudentRiskPredictor:
 
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
             # Prepare data summary for the prompt
             risk_summary = risk_percentage.to_dict()
             
             # Format top risk students for prompt (limit to key features)
-            risk_rows = top_risk[self.cols + ["risk_probability"]].head(3).to_dict(orient="records")
+            if top_risk.empty:
+                risk_rows = []
+            else:
+                valid_cols = [c for c in (self.cols + ["risk_probability"]) if c in top_risk.columns]
+                risk_rows = top_risk[valid_cols].head(3).to_dict(orient="records")
             
             prompt = f"""
             You are an educational data analyst. Based on the following student risk assessment data, provide a concise summary of insights and actionable recommendations.
+            
+            Note : Use bullet points answer style
 
             Data Summary:
             - Risk Distribution (%): {risk_summary}
@@ -225,7 +231,7 @@ class StudentRiskPredictor:
 
             Please provide:
             1. A brief analysis of the current risk landscape.
-            2. 3-4 specific interventions for high-risk students.
+            2. 3-4 specific interventions for high-risk students and mention their names as well.
             3. Long-term strategies to improve overall student performance.
             Keep the tone professional and the advice practical.
             """
@@ -234,6 +240,43 @@ class StudentRiskPredictor:
             return response.text
         except Exception as e:
             return f"Error generating AI insights: {str(e)}"
+
+    def generate_student_insights(self, student_data: Dict[str, Any], risk_probability: float, prediction: int) -> str:
+        """
+        Generates personalized recommendations for a single student based on their own metrics.
+        """
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return "AI Recommendations unavailable: GEMINI_API_KEY not found in environment."
+
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
+
+            risk_level = "High Risk" if prediction == 1 else "Low Risk"
+            risk_percent = round(risk_probability * 100)
+
+            prompt = f"""
+            You are an empathetic academic advisor. Analyze this student's self-reported metrics and provide personalized feedback.
+            
+            Note: Use bullet points answer style.
+
+            Student Data:
+            {student_data}
+            
+            Risk Assessment: {risk_level} ({risk_percent}% risk of poor academic performance)
+            
+            Please provide:
+            1. A brief encouraging opening acknowledging their current standing.
+            2. 2-3 specific, actionable recommendations based ONLY on their metrics (e.g., if screen time is high, address it. If study hours are low, address it).
+            3. A supportive closing statement.
+            Keep the tone supportive, direct, and constructive.
+            """
+
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"Error generating typical student insights: {str(e)}"
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends, Header, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import pandas as pd
 import io
 import os
+import json
 from app.model import StudentRiskPredictor
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -39,16 +41,30 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ── Auth Dependency ───────────────────────────────────────────────────────────
+from supabase import ClientOptions
+
+class AuthenticatedUser:
+    def __init__(self, user, token: str):
+        self.user = user
+        self.token = token
+        self.id = user.id
+
 async def get_current_user(authorization: str = Header(...)):
-    """Validates Supabase JWT and returns user data."""
+    """Validates Supabase JWT and returns user data with token."""
     try:
         token = authorization.replace("Bearer ", "")
         user_response = supabase.auth.get_user(token)
         if not user_response or not user_response.user:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
-        return user_response.user
+        return AuthenticatedUser(user_response.user, token)
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+def get_user_supabase(token: str) -> Client:
+    options = ClientOptions(headers={"Authorization": f"Bearer {token}"})
+    return create_client(SUPABASE_URL, SUPABASE_KEY, options=options)
+
+
 
 
 # ── Pydantic Models ──────────────────────────────────────────────────────────
@@ -69,11 +85,12 @@ class InsightsRequest(BaseModel):
     top_risk: List[Dict[str, Any]]
     risk_distribution: Dict[str, Any]
 
-class SaveHistoryRequest(BaseModel):
-    prediction_type: str  # 'single' or 'batch'
-    input_data: Dict[str, Any]
-    result_data: Dict[str, Any]
-    ai_insights: Optional[str] = None
+class StudentInsightsRequest(BaseModel):
+    student_data: Dict[str, Any]
+    risk_probability: float
+    prediction: int
+
+
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
@@ -96,23 +113,15 @@ async def get_me(user=Depends(get_current_user)):
 
 # ── Single Prediction (Student Dashboard) ─────────────────────────────────────
 @app.post("/predict_single")
-async def predict_single(student: StudentData, user=Depends(get_current_user)):
+async def predict_single(
+    student: StudentData, 
+    user=Depends(get_current_user)
+):
     """Single student prediction — used by the Student Dashboard."""
     try:
         df = pd.DataFrame([student.dict()])
         processed = predictor.pipeline(df)
         row = processed.to_dict(orient="records")[0]
-
-        # Auto-save to history
-        try:
-            supabase.table("prediction_history").insert({
-                "user_id": user.id,
-                "prediction_type": "single",
-                "input_data": student.dict(),
-                "result_data": row,
-            }).execute()
-        except Exception as save_error:
-            print(f"Warning: Failed to save prediction history: {save_error}")
 
         return {
             "prediction": row.get("prediction"),
@@ -124,7 +133,7 @@ async def predict_single(student: StudentData, user=Depends(get_current_user)):
 
 
 # ── Batch JSON Prediction ────────────────────────────────────────────────────
-@app.post("/predict_json", response_model=PredictionResponse)
+@app.post("/predict_json")
 async def predict_json(
     students: List[Dict[str, Any]],
     generate_insights: bool = Query(False),
@@ -143,38 +152,27 @@ async def predict_json(
         if generate_insights:
             ai_insights = predictor.generate_ai_insights(top_p, top_r, risk_dist)
 
-        result = {
-            "predictions": processed_df.to_dict(orient="records"),
-            "dashboard_metrics": {
-                "top_performing": top_p.to_dict(orient="records"),
-                "top_risk": top_r.to_dict(orient="records"),
-                "risk_distribution": risk_dist.to_dict()
-            },
-            "ai_insights": ai_insights
+        dashboard_metrics = {
+            "top_performing": top_p.to_dict(orient="records"),
+            "top_risk": top_r.to_dict(orient="records"),
+            "risk_distribution": risk_dist.to_dict()
         }
 
-        # Auto-save to history
-        try:
-            supabase.table("prediction_history").insert({
-                "user_id": user.id,
-                "prediction_type": "batch",
-                "input_data": {"student_count": len(students)},
-                "result_data": result["dashboard_metrics"],
-                "ai_insights": ai_insights,
-            }).execute()
-        except Exception as save_error:
-            print(f"Warning: Failed to save prediction history: {save_error}")
-
-        return result
+        # Extremely fast C-backed serialization avoiding Python object traversal
+        # Limit the returned payload to 100 rows to drastically save network time and RAM
+        predictions_str = processed_df.head(100).to_json(orient="records")
+        final_json = f'{{"predictions": {predictions_str}, "dashboard_metrics": {json.dumps(dashboard_metrics)}, "ai_insights": {json.dumps(ai_insights)}}}'
+        return Response(content=final_json, media_type="application/json")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── CSV Upload Prediction ────────────────────────────────────────────────────
-@app.post("/predict_csv", response_model=PredictionResponse)
+@app.post("/predict_csv")
 async def predict_csv(
     file: UploadFile = File(...),
     generate_insights: bool = Query(False),
+    department_id: Optional[str] = Query(None),
     user=Depends(get_current_user)
 ):
     """CSV upload prediction. AI insights only when generate_insights=true."""
@@ -191,29 +189,17 @@ async def predict_csv(
         if generate_insights:
             ai_insights = predictor.generate_ai_insights(top_p, top_r, risk_dist)
 
-        result = {
-            "predictions": processed_df.to_dict(orient="records"),
-            "dashboard_metrics": {
-                "top_performing": top_p.to_dict(orient="records"),
-                "top_risk": top_r.to_dict(orient="records"),
-                "risk_distribution": risk_dist.to_dict()
-            },
-            "ai_insights": ai_insights
+        dashboard_metrics = {
+            "top_performing": top_p.to_dict(orient="records"),
+            "top_risk": top_r.to_dict(orient="records"),
+            "risk_distribution": risk_dist.to_dict()
         }
 
-        # Auto-save to history
-        try:
-            supabase.table("prediction_history").insert({
-                "user_id": user.id,
-                "prediction_type": "batch",
-                "input_data": {"filename": file.filename, "student_count": len(df)},
-                "result_data": result["dashboard_metrics"],
-                "ai_insights": ai_insights,
-            }).execute()
-        except Exception as save_error:
-            print(f"Warning: Failed to save prediction history: {save_error}")
-
-        return result
+        # Extremely fast serialization skipping all Python parsing
+        # Output is capped at 100 rows so it processes instantly without clogging the user's browser
+        predictions_str = processed_df.head(100).to_json(orient="records")
+        final_json = f'{{"predictions": {predictions_str}, "dashboard_metrics": {json.dumps(dashboard_metrics)}, "ai_insights": {json.dumps(ai_insights)}}}'
+        return Response(content=final_json, media_type="application/json")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -232,36 +218,15 @@ async def generate_insights(data: InsightsRequest, user=Depends(get_current_user
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ── Prediction History ───────────────────────────────────────────────────────
-@app.get("/history")
-async def get_history(
-    limit: int = Query(20, ge=1, le=100),
-    user=Depends(get_current_user)
-):
-    """Fetch the current user's prediction history."""
+@app.post("/student_insights")
+async def generate_student_insights(data: StudentInsightsRequest, user=Depends(get_current_user)):
+    """Generate personalized AI recommendations for a specific student."""
     try:
-        result = (
-            supabase.table("prediction_history")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        return {"history": result.data}
+        insights = predictor.generate_student_insights(data.student_data, data.risk_probability, data.prediction)
+        return {"ai_insights": insights}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.delete("/history/{record_id}")
-async def delete_history(record_id: str, user=Depends(get_current_user)):
-    """Delete a specific prediction history record (only own records via RLS)."""
-    try:
-        supabase.table("prediction_history").delete().eq("id", record_id).eq("user_id", user.id).execute()
-        return {"message": "Record deleted"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
