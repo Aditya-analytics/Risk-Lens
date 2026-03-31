@@ -9,6 +9,7 @@ import {
   AlertTriangle, CheckCircle, History, Trash2, Activity,
   Send, Sparkles, ArrowLeft, Download
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function StudentDashboard() {
   const { profile } = useAuth()
@@ -112,17 +113,17 @@ export default function StudentDashboard() {
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
         <Navbar />
         <div className="page-container" style={{ flex: 1, maxWidth: '900px', margin: '0 auto', width: '100%', paddingTop: '2.5rem' }}>
-          <button 
-            className="btn btn-ghost btn-sm" 
-            onClick={() => setViewTab('overview')} 
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setViewTab('overview')}
             style={{ marginBottom: '1.5rem', paddingLeft: 0, fontWeight: 500 }}
           >
-            <ArrowLeft size={16} style={{ marginRight: '0.25rem' }}/> Back to Dashboard
+            <ArrowLeft size={16} style={{ marginRight: '0.25rem' }} /> Back to Dashboard
           </button>
-          
+
           <div className="page-header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <h1 className="page-title"><Sparkles size={24} style={{ color: 'var(--accent)', marginRight: '0.5rem', display: 'inline' }}/> Personalized AI Plan</h1>
+              <h1 className="page-title"><Sparkles size={24} style={{ color: 'var(--accent)', marginRight: '0.5rem', display: 'inline' }} /> Personalized AI Plan</h1>
               <p className="page-subtitle">Your custom roadmap to academic success based on your submitted metrics.</p>
             </div>
             {aiInsights && (
@@ -131,7 +132,7 @@ export default function StudentDashboard() {
               </button>
             )}
           </div>
-          
+
           <div className="card" style={{ padding: '0' }}>
             {insightsLoading ? (
               <div className="empty-state" style={{ padding: '6rem 2rem' }}>
@@ -216,83 +217,104 @@ export default function StudentDashboard() {
 
           {/* Right — Result + History */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* Risk Result */}
-            {result && (
-              <div className="card" style={{ borderColor: riskColor }}>
-                <div className="card-header">
-                  <span className="card-title">🎯 Your Risk Assessment</span>
-                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                    <span className={`badge ${isHighRisk ? 'badge-danger' : 'badge-success'}`}>
-                      {isHighRisk ? 'At Risk' : 'On Track'}
-                    </span>
-                    {!aiInsights && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={() => {
-                          setViewTab('ai_insights')
-                          handleGenerateInsights()
-                        }}
-                        disabled={insightsLoading}
-                      >
-                        {insightsLoading ? (
-                          <><div className="spinner" style={{ borderTopColor: 'white', width: 14, height: 14 }}></div> Generating...</>
-                        ) : (
-                          <><Sparkles size={14} /> Get Advice</>
-                        )}
-                      </button>
-                    )}
+            <AnimatePresence mode="wait">
+              {/* Risk Result */}
+              {result ? (
+                <motion.div 
+                  key="result-card"
+                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -20 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                  className="card" 
+                  style={{ borderColor: riskColor }}
+                >
+                  <div className="card-header">
+                    <span className="card-title">🎯 Your Risk Assessment</span>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                      <span className={`badge ${isHighRisk ? 'badge-danger' : 'badge-success'}`}>
+                        {isHighRisk ? 'At Risk' : 'On Track'}
+                      </span>
+                      {!aiInsights && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => {
+                            setViewTab('ai_insights')
+                            handleGenerateInsights()
+                          }}
+                          disabled={insightsLoading}
+                        >
+                          {insightsLoading ? (
+                            <><div className="spinner" style={{ borderTopColor: 'white', width: 14, height: 14 }}></div> Generating...</>
+                          ) : (
+                            <><Sparkles size={14} /> Get Advice</>
+                          )}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="risk-gauge">
-                  <div
-                    className="gauge-circle"
-                    style={{
-                      background: `conic-gradient(${riskColor} ${riskPercent * 3.6}deg, var(--bg-tertiary) 0deg)`,
-                    }}
+                  <div className="risk-gauge">
+                    <motion.div
+                      initial={{ rotate: -90, opacity: 0 }}
+                      animate={{ rotate: 0, opacity: 1 }}
+                      transition={{ delay: 0.2, duration: 1, ease: "easeOut" }}
+                      className="gauge-circle"
+                      style={{
+                        background: `conic-gradient(${riskColor} ${riskPercent * 3.6}deg, var(--bg-tertiary) 0deg)`,
+                      }}
+                    >
+                      <div style={{
+                        width: '110px',
+                        height: '110px',
+                        borderRadius: '50%',
+                        background: 'var(--bg-secondary)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        <span className="gauge-value" style={{ color: riskColor }}>{riskPercent}%</span>
+                        <span className="gauge-label" style={{ color: riskColor }}>{riskLabel}</span>
+                      </div>
+                    </motion.div>
+                  </div>
+
+                  {/* Quick Tips based on risk */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.5 }}
+                    style={{ marginTop: '0.5rem' }}
                   >
-                    <div style={{
-                      width: '110px',
-                      height: '110px',
-                      borderRadius: '50%',
-                      background: 'var(--bg-secondary)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <span className="gauge-value" style={{ color: riskColor }}>{riskPercent}%</span>
-                      <span className="gauge-label" style={{ color: riskColor }}>{riskLabel}</span>
-                    </div>
+                    {isHighRisk ? (
+                      <div className="alert alert-error">
+                        <AlertTriangle size={16} />
+                        <span>Your metrics suggest academic risk. Consider increasing study hours and reducing screen time.</span>
+                      </div>
+                    ) : (
+                      <div className="alert alert-success">
+                        <CheckCircle size={16} />
+                        <span>Great job! Your metrics indicate you're on a healthy academic track.</span>
+                      </div>
+                    )}
+                  </motion.div>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="empty-state"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="card"
+                >
+                  <div className="empty-state">
+                    <Activity size={48} />
+                    <p>Fill in your metrics and click <strong>Check My Risk</strong> to see your assessment</p>
                   </div>
-                </div>
-
-                {/* Quick Tips based on risk */}
-                <div style={{ marginTop: '0.5rem' }}>
-                  {isHighRisk ? (
-                    <div className="alert alert-error">
-                      <AlertTriangle size={16} />
-                      <span>Your metrics suggest academic risk. Consider increasing study hours and reducing screen time.</span>
-                    </div>
-                  ) : (
-                    <div className="alert alert-success">
-                      <CheckCircle size={16} />
-                      <span>Great job! Your metrics indicate you're on a healthy academic track.</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Empty state when no result yet */}
-            {!result && (
-              <div className="card">
-                <div className="empty-state">
-                  <Activity size={48} />
-                  <p>Fill in your metrics and click <strong>Check My Risk</strong> to see your assessment</p>
-                </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
           </div>
         </div>

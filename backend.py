@@ -159,8 +159,8 @@ async def predict_json(
         }
 
         # Extremely fast C-backed serialization avoiding Python object traversal
-        # Limit the returned payload to 100 rows to drastically save network time and RAM
-        predictions_str = processed_df.head(100).to_json(orient="records")
+        # We process all rows to ensure the user sees all uploaded data (e.g. 10,000 students)
+        predictions_str = processed_df.to_json(orient="records")
         final_json = f'{{"predictions": {predictions_str}, "dashboard_metrics": {json.dumps(dashboard_metrics)}, "ai_insights": {json.dumps(ai_insights)}}}'
         return Response(content=final_json, media_type="application/json")
     except Exception as e:
@@ -196,8 +196,8 @@ async def predict_csv(
         }
 
         # Extremely fast serialization skipping all Python parsing
-        # Output is capped at 100 rows so it processes instantly without clogging the user's browser
-        predictions_str = processed_df.head(100).to_json(orient="records")
+        # We output all rows so the dashboard correctly reflects large datasets (e.g. 10,000 records)
+        predictions_str = processed_df.to_json(orient="records")
         final_json = f'{{"predictions": {predictions_str}, "dashboard_metrics": {json.dumps(dashboard_metrics)}, "ai_insights": {json.dumps(ai_insights)}}}'
         return Response(content=final_json, media_type="application/json")
     except Exception as e:

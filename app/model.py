@@ -151,13 +151,14 @@ class StudentRiskPredictor:
         # Step 1: Match columns
         mapping = self.match_columns(df.columns.tolist())
         
-        # Step 2: Rename columns
+        # Step 4: Rename columns
         df = self.rename_columns(df, mapping)
         
-        # Step 3: Filter out rows with missing required columns if necessary (optional)
-        # For now, we assume user provides enough data or predict() will raise an error.
+        # Ensure column names are unique after renaming
+        # This prevents ValueError: DataFrame columns must be unique for orient='records'
+        df = df.loc[:, ~df.columns.duplicated()].copy()
         
-        # Step 4: Predict
+        # Step 3: Predict
         try:
             df = self.predict(df)
         except Exception as e:

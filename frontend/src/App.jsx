@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -24,10 +25,10 @@ function AppRoutes() {
 
   return (
     <Routes>
-      {/* Landing page */}
+      {/* Landing page — accessible to everyone */}
       <Route
         path="/"
-        element={user ? <Navigate to={dashboardPath} replace /> : <Landing />}
+        element={<Landing />}
       />
 
       {/* Auth routes */}
@@ -71,6 +72,16 @@ export default function App() {
         <Router>
           <AppRoutes />
         </Router>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-primary)',
+            },
+          }}
+        />
       </AuthProvider>
     </ThemeProvider>
   )
