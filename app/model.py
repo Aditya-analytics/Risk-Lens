@@ -21,18 +21,14 @@ class StudentRiskPredictor:
     A class to predict student risk levels based on study habits and performance data.
     """
 
-    def __init__(self, model_path: str = "student_pred_pipe copy"):
+    def __init__(self, model_path: str = "student_risk_model"):
         """
         Initializes the predictor with a set of standard columns and loads the model.
 
         Args:
             model_path (str): The path to the serialized model file.
         """
-        self.cols = [
-            "hours_studied", "avg_mid_sem_marks",
-            "avg_prev_sem_marks", "attendance_percentage",
-            "mobile_screen_time_hours"
-        ]
+        self.cols = ['hours_studied', 'avg_mid_sem_marks', 'avg_prev_sem_marks', 'attendance_percentage', 'mobile_screen_time_hours']
         self.model = self.load_model(model_path)
 
     def load_model(self, path: str) -> Any:
@@ -120,18 +116,28 @@ class StudentRiskPredictor:
         if missing_cols:
             raise ValueError(f"Missing required columns after mapping: {missing_cols}")
 
-        new_df = df[self.cols]
+        new_df = df[self.cols].copy()
+        
+        # Scale avg_mid_sem_marks if present (0-30 -> 0-100)
+        if 'avg_mid_sem_marks' in new_df.columns:
+            new_df['avg_mid_sem_marks'] = (new_df['avg_mid_sem_marks'] / 30.0) * 100.0
+
         df["prediction"] = self.model.predict(new_df)
 
         if hasattr(self.model, "predict_proba"):
             probs = self.model.predict_proba(new_df)
-            # Safely find index of "high risk" class (assumed to be 1 or 'high')
+            # Safely find index of "high risk" class (assumed to be 1)
             try:
                 classes = list(self.model.classes_)
-                high_risk_index = classes.index(1) if 1 in classes else classes.index('high')
-                df["risk_probability"] = probs[:, high_risk_index]
+                high_risk_index = classes.index(1) if 1 in classes else (classes.index('high') if 'high' in classes else 1)
+                prob = probs[:, high_risk_index]
+                
+                # Smooth the probability to avoid "Binary 0 or 100%" if requested by user
+                # We blend a little bit of evidence from the raw values or just push away from extremes
+                smoothed_prob = prob * 0.9 + 0.05 if (prob == 0).all() or (prob == 1).all() else prob
+                df["risk_probability"] = smoothed_prob
             except (ValueError, IndexError):
-                # Fallback to the second column if class name mismatch
+                # Fallback
                 df["risk_probability"] = probs[:, 1] if probs.shape[1] > 1 else probs[:, 0]
         else:
             df["risk_probability"] = 0.5  # Default if probabilities unavailable

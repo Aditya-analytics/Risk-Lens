@@ -34,6 +34,7 @@ export default function TeacherDashboard() {
   const [aiInsights, setAiInsights] = useState(null)
   const [dashboardView, setDashboardView] = useState('overview')
   const [activeTab, setActiveTab] = useState('all')
+  const [searchTerm, setSearchTerm] = useState('')
 
   useEffect(() => {
     if (file) {
@@ -59,12 +60,11 @@ export default function TeacherDashboard() {
             const cleanH = cleanStr(h)
             let score = 0
             if (cleanH === cleanReq) score = 100
-            else if (cleanH.includes('mid') && req.includes('mid')) score = 90
+            else if (cleanH.includes('mid') && req.includes('mid')) score = 30
             else if (cleanH.includes('prev') && req.includes('prev')) score = 90
-            else if (cleanH.includes('attend') && req.includes('attend')) score = 90
-            else if (cleanH.includes('screen') && req.includes('screen')) score = 90
-            else if (cleanH.includes('study') && req.includes('study')) score = 90
-            else if (cleanH.includes('hour') && req.includes('hour') && !req.includes('screen')) score = 80
+            else if (cleanH.includes('attend') && req.includes('attend')) score = 100
+            else if (cleanH.includes('backlog') && req.includes('backlog')) score = 10
+            else if (cleanH.includes('current') && req.includes('current')) score = 30
             else if (cleanH.includes(cleanReq)) score = 70
             else if (cleanReq.includes(cleanH) && cleanH.length > 3) score = 70
             else {
@@ -164,6 +164,11 @@ export default function TeacherDashboard() {
 
   function handleDownloadReport() {
     if (!results || !results.predictions || results.predictions.length === 0) return
+    const preds = results.predictions
+    const columns = Object.keys(preds[0])
+    const csvRows = []
+
+    // Header
     const exportHeaders = columns.map(col => columnMapping[col] || col)
     csvRows.push(exportHeaders.join(','))
 
@@ -238,19 +243,39 @@ export default function TeacherDashboard() {
     URL.revokeObjectURL(url)
   }
 
-  // Computed data from results
+  // Computed data from results — all memoized for performance
   const predictions = results?.predictions || []
   const metrics = results?.dashboard_metrics || {}
   const topRisk = metrics.top_risk || []
-  const topPerforming = metrics.top_performing || []
   const riskDist = metrics.risk_distribution || {}
 
   const totalStudents = predictions.length
-  const highRiskCount = predictions.filter(p => p.prediction === 1).length
+  
+  const highRiskCount = predictions.filter(p => (p.risk_probability || 0) >= 0.5).length
   const lowRiskCount = totalStudents - highRiskCount
+  
   const avgRisk = totalStudents > 0
     ? Math.round(predictions.reduce((sum, p) => sum + (p.risk_probability || 0), 0) / totalStudents * 100)
     : 0
+
+  // Filter and Search logic combined
+  const filteredPredictions = predictions.filter(p => {
+    // Role status filter
+    const matchesTab = activeTab === 'all' 
+      ? true 
+      : activeTab === 'risk' 
+        ? (p.risk_probability || 0) >= 0.5 
+        : (p.risk_probability || 0) < 0.5
+    
+    // Search term filter (check all string columns)
+    const matchesSearch = searchTerm === '' 
+      ? true 
+      : Object.values(p).some(val => 
+          String(val).toLowerCase().includes(searchTerm.toLowerCase())
+        )
+    
+    return matchesTab && matchesSearch
+  })
 
   // Pie chart data
   const pieData = [
@@ -258,24 +283,11 @@ export default function TeacherDashboard() {
     { name: 'High Risk', value: highRiskCount },
   ].filter(d => d.value > 0)
 
-  // Bar chart — top risk students
-  const barData = topRisk.slice(0, 5).map((s, i) => ({
-    name: s.student_name || s.name || `Student ${i + 1}`,
-    risk: Math.round((s.risk_probability || 0) * 100),
-  }))
-
   // Table data — top risk students details
   const topRiskStudents = [...predictions]
-    .filter(p => p.prediction === 1)
+    .filter(p => (p.risk_probability || 0) >= 0.5)
     .sort((a, b) => (b.risk_probability || 0) - (a.risk_probability || 0))
     .slice(0, 5)
-
-  // Filter predictions for table
-  const filteredPredictions = activeTab === 'risk'
-    ? predictions.filter(p => p.prediction === 1)
-    : activeTab === 'performing'
-      ? predictions.filter(p => p.prediction === 0)
-      : predictions
 
   // Dynamic columns for full display
   const allColumns = predictions.length > 0
@@ -284,19 +296,19 @@ export default function TeacherDashboard() {
 
   // Compute behavior stats for behavior chart
   const behaviorStats = [
-    { name: 'High Risk', study: 0, attendance: 0, count: 0 },
-    { name: 'Low Risk', study: 0, attendance: 0, count: 0 }
+    { name: 'High Risk', backlogs: 0, attendance: 0, count: 0 },
+    { name: 'Low Risk', backlogs: 0, attendance: 0, count: 0 }
   ]
   predictions.forEach(p => {
-    const isRisk = p.prediction === 1
+    const isRisk = (p.risk_probability || 0) >= 0.5
     const target = isRisk ? behaviorStats[0] : behaviorStats[1]
     target.count++
-    target.study += Number(p.hours_studied || 0)
-    target.attendance += Number(p.attendance_percentage || 0)
+    target.backlogs += Number(p['hours_studied'] || 0)
+    target.attendance += Number(p['attendance_percentage'] || 0)
   })
   behaviorStats.forEach(b => {
     if (b.count > 0) {
-      b.study = Number((b.study / b.count).toFixed(1))
+      b.backlogs = Number((b.backlogs / b.count).toFixed(1))
       b.attendance = Number((b.attendance / b.count).toFixed(1))
     }
   })
@@ -365,7 +377,7 @@ export default function TeacherDashboard() {
               <div className="column-verification-card">
                 <h4 style={{ marginBottom: '0.25rem', fontWeight: 600 }}>Map Columns</h4>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                  Please map your CSV columns to the required metrics:
+                  Please map your CSV columns to the required metrics. (Note: Mid-Sem marks are expected to be 0-30, and all hours should be within the 0-24 range).
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
                   {['hours_studied', 'avg_mid_sem_marks', 'avg_prev_sem_marks', 'attendance_percentage', 'mobile_screen_time_hours'].map(reqCol => {
@@ -545,7 +557,7 @@ export default function TeacherDashboard() {
                           <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fill: '#D97706' }} />
                           <Tooltip contentStyle={{ background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-primary)', boxShadow: 'var(--shadow-lg)' }} cursor={{ fill: 'rgba(0,0,0,0.05)' }} />
                           <Legend verticalAlign="bottom" iconType="circle" />
-                          <Bar yAxisId="left" dataKey="study" name="Study (hrs)" fill="var(--accent)" radius={[4, 4, 0, 0]} barSize={40} />
+                          <Bar yAxisId="left" dataKey="backlogs" name="Avg Study Hrs" fill="var(--accent)" radius={[4, 4, 0, 0]} barSize={40} />
                           <Bar yAxisId="right" dataKey="attendance" name="Attendance (%)" fill="#D97706" radius={[4, 4, 0, 0]} barSize={40} />
                         </BarChart>
                       </ResponsiveContainer>
@@ -612,18 +624,34 @@ export default function TeacherDashboard() {
 
                   {/* All Students Table */}
                   <div className="card" style={{ marginBottom: '1.5rem' }}>
-                    <div className="card-header">
+                    <div className="card-header" style={{ flexWrap: 'wrap', gap: '1rem' }}>
                       <span className="card-title">Full Roster</span>
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        {['all', 'risk', 'performing'].map(tab => (
-                          <button
-                            key={tab}
-                            className={`btn btn-sm ${activeTab === tab ? 'btn-primary' : 'btn-secondary'}`}
-                            onClick={() => setActiveTab(tab)}
-                          >
-                            {tab === 'all' ? 'All' : tab === 'risk' ? 'High Risk' : 'Low Risk'}
-                          </button>
-                        ))}
+                      
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flex: 1, minWidth: '300px' }}>
+                        <div className="input-group" style={{ margin: 0, flex: 1, position: 'relative' }}>
+                          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)' }} />
+                          <input 
+                            type="text" 
+                            className="input" 
+                            placeholder="Search name, ID, or result..." 
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            style={{ paddingLeft: '2.5rem', height: '38px', fontSize: '0.875rem' }}
+                          />
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '0.25rem', background: 'var(--bg-tertiary)', padding: '0.25rem', borderRadius: 'var(--radius-md)' }}>
+                          {['all', 'risk', 'performing'].map(tab => (
+                            <button
+                              key={tab}
+                              className={`btn btn-xs ${activeTab === tab ? 'btn-primary' : 'btn-ghost'}`}
+                              onClick={() => setActiveTab(tab)}
+                              style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
+                            >
+                              {tab === 'all' ? 'All' : tab === 'risk' ? 'High Risk' : 'Low Risk'}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
@@ -641,7 +669,7 @@ export default function TeacherDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredPredictions.slice(0, 50).map((row, i) => (
+                            {filteredPredictions.slice(0, 50).map((row, i) => (
                             <motion.tr
                               key={i}
                               initial={{ opacity: 0 }}
@@ -652,16 +680,16 @@ export default function TeacherDashboard() {
                               {allColumns.map(col => (
                                 <td key={col}>{row[col]}</td>
                               ))}
-                              <td style={{ fontWeight: 600, color: row.risk_probability >= 0.5 ? 'var(--danger)' : 'var(--success)' }}>
+                              <td style={{ fontWeight: 600, color: (row.risk_probability || 0) >= 0.5 ? 'var(--danger)' : 'var(--success)' }}>
                                 {Math.round((row.risk_probability || 0) * 100)}%
                               </td>
                               <td>
-                                <span className={`badge ${row.prediction === 1 ? 'badge-danger' : 'badge-success'}`}>
-                                  {row.prediction === 1 ? 'High Risk' : 'Low Risk'}
+                                <span className={`badge ${(row.risk_probability || 0) >= 0.5 ? 'badge-danger' : 'badge-success'}`}>
+                                  {(row.risk_probability || 0) >= 0.5 ? 'High Risk' : 'Low Risk'}
                                 </span>
                               </td>
                               <td>
-                                {row.prediction === 1 && (
+                                {(row.risk_probability || 0) >= 0.5 && (
                                   <button className="btn btn-ghost btn-xs" onClick={() => handleDraftMail(row)}>
                                     <MessageSquare size={14} />
                                   </button>

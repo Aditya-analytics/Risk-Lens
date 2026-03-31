@@ -92,20 +92,65 @@ export default function StudentDashboard() {
   }
 
   const riskProbability = result?.risk_probability ?? 0
-  const isHighRisk = result?.prediction === 1
   const riskPercent = Math.round(riskProbability * 100)
+  const isHighRisk = riskProbability >= 0.5
 
-  // Risk color
-  const riskColor = riskPercent >= 70 ? 'var(--danger)' : riskPercent >= 40 ? 'var(--warning)' : 'var(--success)'
-  const riskBg = riskPercent >= 70 ? 'var(--danger-bg)' : riskPercent >= 40 ? 'var(--warning-bg)' : 'var(--success-bg)'
-  const riskLabel = riskPercent >= 70 ? 'High Risk' : riskPercent >= 40 ? 'Moderate Risk' : 'Low Risk'
+  // Risk color and label aligned with model prediction (>= 0.5 = High Risk)
+  const riskColor = isHighRisk ? 'var(--danger)' : 'var(--success)'
+  const riskBg = isHighRisk ? 'var(--danger-bg)' : 'var(--success-bg)'
+  const riskLabel = isHighRisk ? 'High Risk' : 'Low Risk'
 
   const fields = [
-    { name: 'hours_studied', label: 'Hours Studied (per day)', icon: <Clock size={18} />, placeholder: 'e.g. 4.5', min: 0, max: 24 },
-    { name: 'avg_mid_sem_marks', label: 'Avg Mid-Sem Marks', icon: <BookOpen size={18} />, placeholder: 'e.g. 72', min: 0, max: 100 },
-    { name: 'avg_prev_sem_marks', label: 'Avg Prev Sem Marks', icon: <TrendingUp size={18} />, placeholder: 'e.g. 68', min: 0, max: 100 },
-    { name: 'attendance_percentage', label: 'Attendance %', icon: <Users size={18} />, placeholder: 'e.g. 85', min: 0, max: 100 },
-    { name: 'mobile_screen_time_hours', label: 'Mobile Screen Time (hrs)', icon: <Smartphone size={18} />, placeholder: 'e.g. 3.5', min: 0, max: 24 },
+    { 
+      name: 'hours_studied', 
+      label: 'Hours Studied / Day', 
+      icon: <BookOpen size={18} />, 
+      placeholder: 'e.g. 4', 
+      min: 0, 
+      max: 24,
+      dangerThreshold: val => val < 2 || val > 16,
+      help: 'Range: 0-24 hrs'
+    },
+    { 
+      name: 'avg_mid_sem_marks', 
+      label: 'Avg Mid-Sem Marks', 
+      icon: <TrendingUp size={18} />, 
+      placeholder: 'e.g. 15', 
+      min: 0, 
+      max: 30,
+      dangerThreshold: val => val < 12,
+      help: 'Range: 0-30'
+    },
+    { 
+      name: 'avg_prev_sem_marks', 
+      label: 'Avg Prev-Sem Marks', 
+      icon: <History size={18} />, 
+      placeholder: 'e.g. 70', 
+      min: 0, 
+      max: 100,
+      dangerThreshold: val => val < 40,
+      help: 'Range: 0-100'
+    },
+    { 
+      name: 'attendance_percentage', 
+      label: 'Attendance (%)', 
+      icon: <Users size={18} />, 
+      placeholder: 'e.g. 85', 
+      min: 0, 
+      max: 100,
+      dangerThreshold: val => val < 75,
+      help: 'Recommended: >75%'
+    },
+    { 
+      name: 'mobile_screen_time_hours', 
+      label: 'Mobile Usage (hrs)', 
+      icon: <Smartphone size={18} />, 
+      placeholder: 'e.g. 3', 
+      min: 0, 
+      max: 24,
+      dangerThreshold: val => val > 4,
+      help: 'Range: 0-24 hrs'
+    },
   ]
 
   if (viewTab === 'ai_insights') {
@@ -178,11 +223,14 @@ export default function StudentDashboard() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {fields.map(field => (
                 <div className="input-group" key={field.name}>
-                  <label className="input-label" htmlFor={field.name}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                      {field.icon} {field.label}
-                    </span>
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.375rem' }}>
+                    <label className="input-label" htmlFor={field.name} style={{ margin: 0 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                        {field.icon} {field.label}
+                      </span>
+                    </label>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{field.help}</span>
+                  </div>
                   <input
                     id={field.name}
                     name={field.name}
@@ -195,7 +243,19 @@ export default function StudentDashboard() {
                     value={formData[field.name]}
                     onChange={handleChange}
                     required
+                    style={{
+                      borderColor: formData[field.name] && field.dangerThreshold(Number(formData[field.name])) ? 'var(--danger-border, #fecaca)' : '',
+                      background: formData[field.name] && field.dangerThreshold(Number(formData[field.name])) ? 'var(--danger-bg-subtle, rgba(220, 38, 38, 0.02))' : ''
+                    }}
                   />
+                  {formData[field.name] && field.dangerThreshold(Number(formData[field.name])) && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                      style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '0.375rem', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                    >
+                      <AlertTriangle size={12} /> Risks identified in this metric
+                    </motion.div>
+                  )}
                 </div>
               ))}
 
@@ -280,6 +340,19 @@ export default function StudentDashboard() {
                     </motion.div>
                   </div>
 
+                  {/* Metrics Recap */}
+                  <div style={{ marginTop: '1.5rem', marginBottom: '1rem', padding: '1rem', background: 'var(--bg-primary-subtle, rgba(0,0,0,0.03))', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-primary)' }}>
+                    <h4 style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.025em', fontWeight: 600 }}>Submitted Metrics</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                      {fields.map(f => (
+                        <div key={f.name} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                          <span style={{ color: 'var(--text-tertiary)' }}>{f.label}:</span>
+                          <span style={{ fontWeight: 600 }}>{formData[f.name]}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Quick Tips based on risk */}
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }}
@@ -290,7 +363,7 @@ export default function StudentDashboard() {
                     {isHighRisk ? (
                       <div className="alert alert-error">
                         <AlertTriangle size={16} />
-                        <span>Your metrics suggest academic risk. Consider increasing study hours and reducing screen time.</span>
+                        <span>Your metrics suggest academic risk. Consider reviewing backlogs and improving your current mid-sem performance.</span>
                       </div>
                     ) : (
                       <div className="alert alert-success">
